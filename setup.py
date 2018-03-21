@@ -14,7 +14,7 @@ setup(
     long_description_markdown_filename='README.md',
     author='Piper Merriam',
     author_email='pipermerriam@gmail.com',
-    url='https://github.com/ethereum/eth-abi',
+    url='https://github.com/icodeface/eth-abi',
     include_package_data=True,
     install_requires=[
         'eth-utils>=1.0.1,<2.0.0',

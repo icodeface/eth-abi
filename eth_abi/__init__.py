@@ -10,4 +10,4 @@ from eth_abi.abi import (  # NOQA
 try:
     __version__ = pkg_resources.get_distribution('eth-abi').version
 except BaseException:
-    __version__ = '0.5.0'
+    __version__ = '1.0.0'
