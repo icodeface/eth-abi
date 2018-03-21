@@ -1,4 +1,4 @@
-from cytoolz import (
+from toolz import (
     curry,
 )
 
