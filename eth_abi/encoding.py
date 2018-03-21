@@ -1,3 +1,4 @@
+import codecs
 import itertools
 
 from eth_utils import (
@@ -6,6 +7,7 @@ from eth_utils import (
     is_number,
     is_address,
     is_bytes,
+    is_text,
     is_list_like,
     is_null,
     to_canonical_address,
@@ -92,9 +94,12 @@ class BaseEncoder(object):
         for key in kwargs:
             if not hasattr(cls, key):
                 raise AttributeError(
-                    "Property {0} not found on Decoder class. "
-                    "`Decoder.factory` only accepts keyword arguments which are "
-                    "present on the Decoder class".format(key)
+                    "Property `{key}` not found on {cls_name} class. "
+                    "`{cls_name}.as_encoder` only accepts keyword arguments which are "
+                    "present on the {cls_name} class.".format(
+                        key=key,
+                        cls_name=cls.__name__,
+                    )
                 )
         if name is None:
             name = cls.__name__
@@ -133,7 +138,7 @@ class MultiEncoder(BaseEncoder):
         tail_chunks = []
 
         for value, encoder in zip(values, cls.encoders):
-            if isinstance(encoder, (DynamicArrayEncoder, StringEncoder)):
+            if isinstance(encoder, (DynamicArrayEncoder, ByteStringEncoder, TextStringEncoder)):
                 raw_head_chunks.append(None)
                 tail_chunks.append(encoder(value))
             else:
@@ -404,12 +409,12 @@ class BytesEncoder(Fixed32ByteSizeEncoder):
         return value
 
 
-class StringEncoder(BaseEncoder):
+class ByteStringEncoder(BaseEncoder):
     @classmethod
     def encode(cls, value):
         if not is_bytes(value):
             raise EncodingTypeError(
-                "Value of type {0} cannot be encoded by StringEncoder".format(
+                "Value of type {0} cannot be encoded by ByteStringEncoder".format(
                     type(value),
                 )
             )
@@ -424,7 +429,23 @@ class StringEncoder(BaseEncoder):
         return encoded_value
 
 
-encode_string = encode_bytes = StringEncoder.as_encoder()
+encode_bytes = ByteStringEncoder.as_encoder()
+
+
+class TextStringEncoder(ByteStringEncoder):
+    @classmethod
+    def encode(cls, value):
+        if not is_text(value):
+            raise EncodingTypeError(
+                "Value of type {0} cannot be encoded by TextStringEncoder".format(
+                    type(value),
+                )
+            )
+        value_as_bytes = codecs.encode(value, 'utf8')
+        return super().encode(value_as_bytes)
+
+
+encode_string = TextStringEncoder.as_encoder()
 
 
 class BaseArrayEncoder(BaseEncoder):

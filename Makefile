@@ -22,7 +22,7 @@ clean-pyc:
 	find . -name '*~' -exec rm -f {} +
 
 lint:
-	flake8 eth_abi
+	tox -e lint
 
 test:
 	py.test tests
@@ -30,8 +30,24 @@ test:
 test-all:
 	tox
 
+build-docs:
+	sphinx-apidoc -o docs/ . setup.py "eth_abi/utils/*" "*conftest*"
+	$(MAKE) -C docs clean
+	$(MAKE) -C docs html
+
+docs: build-docs
+	open docs/_build/html/index.html
+
+linux-docs: build-docs
+	xdg-open docs/_build/html/index.html
+
 release: clean
+	CURRENT_SIGN_SETTING=$(git config commit.gpgSign)
+	git config commit.gpgSign true
+	bumpversion $(bump)
+	git push upstream && git push upstream --tags
 	python setup.py sdist bdist_wheel upload
+	git config commit.gpgSign "$(CURRENT_SIGN_SETTING)"
 
 sdist: clean
 	python setup.py sdist bdist_wheel

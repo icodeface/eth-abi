@@ -46,6 +46,7 @@ from eth_abi.utils.padding import (
     zpad32,
 )
 from eth_abi.utils.numeric import (
+    abi_decimal_context,
     big_endian_to_int,
     int_to_big_endian,
     compute_signed_integer_bounds,
@@ -56,6 +57,25 @@ from eth_abi.utils.numeric import (
 
 def is_non_empty_non_null_byte_string(value):
     return value and big_endian_to_int(value) != 0
+
+
+def is_valid_padding_bytes(padding_bytes, data_bytes):
+    # Empty padding is always valid
+    if len(padding_bytes) == 0:
+        return True
+
+    leading_data_bit_is_one = (data_bytes[0] & 0b10000000) == 0b10000000
+
+    if leading_data_bit_is_one:
+        # All padding bits must be 1
+        if padding_bytes.replace(b'\xff', b'') == b'':
+            return True
+    else:
+        # All padding bits must be 0
+        if padding_bytes.replace(b'\x00', b'') == b'':
+            return True
+
+    return False
 
 
 def all_bytes_equal(test_bytes, target):
@@ -416,7 +436,10 @@ def test_decode_unsigned_real(high_bit_size,
         decoded_value = decoder(stream)
 
     unsigned_integer_value = big_endian_to_int(stream_bytes[:data_byte_size])
-    raw_real_value = decimal.Decimal(unsigned_integer_value) / 2 ** low_bit_size
+
+    with decimal.localcontext(abi_decimal_context):
+        raw_real_value = decimal.Decimal(unsigned_integer_value) / 2 ** low_bit_size
+
     actual_value = quantize_value(raw_real_value, low_bit_size)
 
     assert decoded_value == actual_value
@@ -429,6 +452,13 @@ def test_decode_unsigned_real(high_bit_size,
     integer_bit_size=st.integers(min_value=1, max_value=32).map(lambda v: v * 8),
     stream_bytes=st.binary(min_size=0, max_size=32, average_size=32),
     data_byte_size=st.integers(min_value=0, max_value=32),
+)
+@example(
+    high_bit_size=8,
+    low_bit_size=8,
+    integer_bit_size=16,
+    stream_bytes=b'\xff\xff\xff\xa9\xf5\xb3',
+    data_byte_size=3,
 )
 def test_decode_signed_real(high_bit_size,
                             low_bit_size,
@@ -462,28 +492,41 @@ def test_decode_signed_real(high_bit_size,
         )
 
     stream = BytesIO(stream_bytes)
-    padding_bytes = stream_bytes[:data_byte_size][:data_byte_size - integer_bit_size // 8]
+
+    padding_offset = data_byte_size - integer_bit_size // 8
+    data_offset = padding_offset + integer_bit_size // 8
+
+    padding_bytes = stream_bytes[:data_byte_size][:padding_offset]
+    data_bytes = stream_bytes[:data_byte_size][padding_offset:data_offset]
 
     if len(stream_bytes) < data_byte_size:
         with pytest.raises(InsufficientDataBytes):
             decoder(stream)
         return
-    elif is_non_empty_non_null_byte_string(padding_bytes):
+    elif not is_valid_padding_bytes(padding_bytes, data_bytes):
         with pytest.raises(NonEmptyPaddingBytes):
             decoder(stream)
         return
     else:
         decoded_value = decoder(stream)
 
+    if padding_bytes:
+        if decoded_value >= 0:
+            assert bytes(set(padding_bytes)) == b'\x00'
+        else:
+            assert bytes(set(padding_bytes)) == b'\xff'
+
     _, upper_bound = compute_signed_integer_bounds(high_bit_size + low_bit_size)
 
-    unsigned_integer_value = big_endian_to_int(stream_bytes[:data_byte_size])
+    unsigned_integer_value = big_endian_to_int(data_bytes)
     if unsigned_integer_value >= upper_bound:
         signed_integer_value = unsigned_integer_value - 2 ** (high_bit_size + low_bit_size)
     else:
         signed_integer_value = unsigned_integer_value
 
-    raw_actual_value = decimal.Decimal(signed_integer_value) / 2 ** low_bit_size
+    with decimal.localcontext(abi_decimal_context):
+        raw_actual_value = decimal.Decimal(signed_integer_value) / 2 ** low_bit_size
+
     actual_value = quantize_value(raw_actual_value, low_bit_size)
 
     assert decoded_value == actual_value
